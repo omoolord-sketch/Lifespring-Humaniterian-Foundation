@@ -105,12 +105,20 @@ function lhf_add_complaint(array $complaint): array {
 }
 
 function lhf_admin_required(): void {
-    $expected = getenv('ADMIN_API_TOKEN') ?: '';
+    $expected = getenv('ADMIN_API_TOKEN') ?: lhf_file_admin_token();
     if ($expected === '') {
-        lhf_json(503, ['message' => 'Admin API token is not configured on the server.']);
+        lhf_json(503, ['message' => 'Admin API token is not configured on the server. Create api/data/admin-token.txt or set ADMIN_API_TOKEN.']);
     }
     $provided = $_SERVER['HTTP_X_ADMIN_TOKEN'] ?? '';
     if (!hash_equals($expected, $provided)) {
         lhf_json(401, ['message' => 'Unauthorised admin request']);
     }
+}
+
+function lhf_file_admin_token(): string {
+    $path = lhf_data_dir() . '/admin-token.txt';
+    if (!file_exists($path)) {
+        return '';
+    }
+    return trim((string)file_get_contents($path));
 }

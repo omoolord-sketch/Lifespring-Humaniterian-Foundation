@@ -209,6 +209,11 @@ admin status updates. Set `ADMIN_API_TOKEN` in Hostinger environment variables
 where supported. If `ADMIN_API_TOKEN` is not configured, the admin API refuses
 access rather than using a default password.
 
+On Hostinger shared hosting, if there is no environment variable screen, create
+`public_html/api/data/admin-token.txt` in File Manager and put one long private
+admin token inside it. The `api/data/.htaccess` file blocks public web access to
+that folder.
+
 ## Workflow Test Checklist
 
 - open `/governance` and each policy link

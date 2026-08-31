@@ -1,6 +1,8 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+  RewriteRule ^api/admin/applications$ /api/admin-applications.php [L,QSA]
+  RewriteRule ^api/admin/application-status$ /api/admin-application-status.php [L,QSA]
   RewriteRule ^api/(scholarship|support-request|contact|donation-intent|complaints|report-a-concern)$ /api/$1.php [L,QSA]
   RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f

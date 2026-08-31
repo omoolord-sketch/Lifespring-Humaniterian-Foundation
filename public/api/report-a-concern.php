@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_mail.php';
+require_once __DIR__ . '/_storage.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     lhf_json(405, ['message' => 'Method not allowed']);
@@ -8,6 +9,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 lhf_require(['category', 'description', 'immediateRisk']);
 
 $reference = lhf_reference('LHF-CON');
+lhf_add_complaint([
+    'reference' => $reference,
+    'type' => 'CONCERN',
+    'status' => 'SUBMITTED',
+    'data' => [
+        'name' => lhf_value('name'),
+        'email' => lhf_value('email'),
+        'phone' => lhf_value('phone'),
+        'relationship' => lhf_value('relationship'),
+        'category' => lhf_value('category'),
+        'description' => lhf_value('description'),
+        'peopleInvolved' => lhf_value('peopleInvolved'),
+        'incidentDate' => lhf_value('incidentDate'),
+        'location' => lhf_value('location'),
+        'immediateRisk' => lhf_value('immediateRisk'),
+    ],
+]);
 $body = "A new concern report has been submitted.\n\n"
     . "Concern Reference: {$reference}\n"
     . "Name: " . (lhf_value('name') ?: 'Not provided') . "\n"

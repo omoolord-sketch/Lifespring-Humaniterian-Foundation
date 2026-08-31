@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_mail.php';
+require_once __DIR__ . '/_storage.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     lhf_json(405, ['message' => 'Method not allowed']);
@@ -9,6 +10,21 @@ lhf_require(['name', 'email', 'phone', 'relationship', 'category', 'details', 'd
 lhf_require_checks(['privacyAccepted']);
 
 $reference = lhf_reference('LHF-CMP');
+lhf_add_complaint([
+    'reference' => $reference,
+    'type' => 'COMPLAINT',
+    'status' => 'SUBMITTED',
+    'data' => [
+        'name' => lhf_value('name'),
+        'email' => lhf_value('email'),
+        'phone' => lhf_value('phone'),
+        'relationship' => lhf_value('relationship'),
+        'reference' => lhf_value('reference'),
+        'category' => lhf_value('category'),
+        'details' => lhf_value('details'),
+        'desiredResolution' => lhf_value('desiredResolution'),
+    ],
+]);
 $body = "A new complaint has been submitted.\n\n"
     . "Complaint Reference: {$reference}\n"
     . "Name: " . lhf_value('name') . "\n"

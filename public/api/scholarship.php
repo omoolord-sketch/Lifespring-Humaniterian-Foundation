@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_mail.php';
+require_once __DIR__ . '/_storage.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     lhf_json(405, ['message' => 'Method not allowed']);
@@ -36,6 +37,41 @@ lhf_require_files(['passportPhoto', 'termResult', 'currentBill']);
 $reference = lhf_reference('LHF-SCH');
 $name = lhf_value('firstName') . ' ' . lhf_value('lastName');
 $email = lhf_value('email');
+$application = lhf_add_application([
+    'reference' => $reference,
+    'type' => 'SCHOLARSHIP',
+    'applicantName' => $name,
+    'applicantEmail' => $email,
+    'applicantPhone' => lhf_value('phone'),
+    'status' => 'SUBMITTED',
+    'data' => [
+        'firstName' => lhf_value('firstName'),
+        'lastName' => lhf_value('lastName'),
+        'homeAddress' => lhf_value('homeAddress'),
+        'email' => $email,
+        'phone' => lhf_value('phone'),
+        'guardianName' => lhf_value('guardianName'),
+        'guardianEmail' => lhf_value('guardianEmail'),
+        'guardianPhone' => lhf_value('guardianPhone'),
+        'guardianOccupation' => lhf_value('guardianOccupation'),
+        'guardianMonthlyIncome' => lhf_value('guardianMonthlyIncome'),
+        'schoolName' => lhf_value('schoolName'),
+        'classLevel' => lhf_value('classLevel'),
+        'schoolLocation' => lhf_value('schoolLocation'),
+        'schoolPhone' => lhf_value('schoolPhone'),
+        'schoolAddress' => lhf_value('schoolAddress'),
+        'schoolContactPerson' => lhf_value('schoolContactPerson'),
+        'academicNeed' => lhf_value('academicNeed'),
+        'primarySchoolOnlyAcknowledged' => lhf_value('primarySchoolOnlyAcknowledged'),
+    ],
+    'acknowledgements' => [
+        ['policyId' => lhf_value('scholarshipCodePolicyId') ?: 'SCHOLARSHIP_CODE', 'policyVersion' => lhf_value('scholarshipCodePolicyVersion') ?: '1.0', 'declaration' => 'primarySchoolOnlyAcknowledged', 'accepted' => true, 'acceptedAt' => gmdate('c')],
+        ['policyId' => lhf_value('scholarshipCodePolicyId') ?: 'SCHOLARSHIP_CODE', 'policyVersion' => lhf_value('scholarshipCodePolicyVersion') ?: '1.0', 'declaration' => 'truthDeclaration', 'accepted' => true, 'acceptedAt' => gmdate('c')],
+        ['policyId' => lhf_value('scholarshipCodePolicyId') ?: 'SCHOLARSHIP_CODE', 'policyVersion' => lhf_value('scholarshipCodePolicyVersion') ?: '1.0', 'declaration' => 'codeOfConductAccepted', 'accepted' => true, 'acceptedAt' => gmdate('c')],
+        ['policyId' => lhf_value('scholarshipCodePolicyId') ?: 'SCHOLARSHIP_CODE', 'policyVersion' => lhf_value('scholarshipCodePolicyVersion') ?: '1.0', 'declaration' => 'verificationAcknowledged', 'accepted' => true, 'acceptedAt' => gmdate('c')],
+        ['policyId' => lhf_value('privacyPolicyId') ?: 'PRIVACY', 'policyVersion' => lhf_value('privacyPolicyVersion') ?: '1.0', 'declaration' => 'privacyPolicyAccepted', 'accepted' => true, 'acceptedAt' => gmdate('c')],
+    ],
+]);
 $body = "A new scholarship application has been submitted.\n\n"
     . "Application Reference: {$reference}\n\n"
     . "APPLICANT DETAILS\n"

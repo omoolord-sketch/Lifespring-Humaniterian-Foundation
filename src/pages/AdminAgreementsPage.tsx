@@ -8,6 +8,8 @@ type ApplicationRecord = {
   applicantName: string;
   applicantEmail: string;
   status: string;
+  data?: Record<string, string>;
+  createdAt?: string;
 };
 
 type AgreementRecord = {
@@ -109,8 +111,39 @@ export default function AdminAgreementsPage() {
       return;
     }
 
-    await adminPost(`/api/admin/applications/${applicationId}/prepare-agreement`);
+    try {
+      await adminPost(`/api/admin/applications/${applicationId}/prepare-agreement`);
+    } catch {
+      await setApplicationStatus(applicationId, "APPROVED_PENDING_AGREEMENT");
+    }
     await loadRecords();
+  }
+
+  async function updateApplicationStatus(applicationId: string, status: string) {
+    if (!confirm(`Change this application status to ${status}?`)) {
+      return;
+    }
+
+    await setApplicationStatus(applicationId, status);
+    await loadRecords();
+  }
+
+  async function setApplicationStatus(applicationId: string, status: string) {
+    setMessage("");
+    const response = await fetch(apiUrl("/api/admin/application-status"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": token,
+      },
+      body: JSON.stringify({ applicationId, status }),
+    });
+    const messageText = await readApiMessage(response);
+    setMessage(messageText);
+
+    if (!response.ok) {
+      throw new Error(messageText);
+    }
   }
 
   async function sendAgreement(agreementId: string) {
@@ -264,8 +297,13 @@ export default function AdminAgreementsPage() {
 
       <section className="mt-8 rounded-md border border-[#eadfcb] bg-white p-5 shadow-sm">
         <h2 className="text-2xl font-extrabold text-[var(--lifespring-burgundy)]">
-          Applications
+          Submitted Applications
         </h2>
+        <p className="mt-2 text-sm leading-6 text-[var(--lifespring-muted)]">
+          Open each record to review the submitted form details, then update the
+          status. Approved applications can later move into DocuSign once the
+          DocuSign credentials/templates are configured.
+        </p>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {applications.map((application) => {
             const hasAgreement = agreements.some(
@@ -283,14 +321,43 @@ export default function AdminAgreementsPage() {
                 <p className="mt-2 text-sm text-[var(--lifespring-muted)]">
                   {application.reference} | {application.status}
                 </p>
-                <button
-                  type="button"
-                  disabled={!canPrepare}
-                  onClick={() => void prepareAgreement(application.id)}
-                  className="mt-4 rounded-md bg-[var(--lifespring-burgundy)] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Approve & Prepare Agreement
-                </button>
+                <details className="mt-4 rounded-md bg-[#fff7e6] p-3 text-sm text-[var(--lifespring-muted)]">
+                  <summary className="cursor-pointer font-bold text-[var(--lifespring-burgundy)]">
+                    View form details
+                  </summary>
+                  <dl className="mt-3 space-y-2">
+                    {Object.entries(application.data || {}).map(([key, value]) => (
+                      <div key={key}>
+                        <dt className="font-bold text-[var(--lifespring-text)]">{key}</dt>
+                        <dd className="break-words">{String(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!canPrepare}
+                    onClick={() => void prepareAgreement(application.id)}
+                    className="rounded-md bg-[var(--lifespring-burgundy)] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void updateApplicationStatus(application.id, "UNDER_REVIEW")}
+                    className="rounded-md border border-[#d9c8a5] px-4 py-2 text-sm font-bold text-[var(--lifespring-burgundy)]"
+                  >
+                    Under Review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void updateApplicationStatus(application.id, "DECLINED")}
+                    className="rounded-md border border-red-200 px-4 py-2 text-sm font-bold text-red-700"
+                  >
+                    Decline
+                  </button>
+                </div>
               </article>
             );
           })}

@@ -203,6 +203,12 @@ If the Hostinger plan supports Node.js applications, deploy the backend with
 If the plan is static-only, the public pages will host correctly, but backend
 forms and admin workflows need a separate Node-capable host.
 
+The deployed Hostinger fallback also includes PHP endpoints under `/api` for
+basic form email, applicant confirmation, local JSON submission records and
+admin status updates. Set `ADMIN_API_TOKEN` in Hostinger environment variables
+where supported. If `ADMIN_API_TOKEN` is not configured, the admin API refuses
+access rather than using a default password.
+
 ## Workflow Test Checklist
 
 - open `/governance` and each policy link
@@ -213,6 +219,8 @@ forms and admin workflows need a separate Node-capable host.
 - submit complaint and confirm reference begins `LHF-CMP`
 - submit concern report and confirm reference begins `LHF-CON`
 - set `ADMIN_API_TOKEN`, open `/admin/agreements`, and load records
+- on Hostinger PHP fallback, open `/admin/agreements`, enter the admin token,
+  expand a submitted application, then use Approve, Under Review or Decline
 - prepare agreement for an eligible application
 - confirm declined, withdrawn and suspended applications cannot prepare agreements
 - attempt send without DocuSign credentials and confirm it clearly reports not configured

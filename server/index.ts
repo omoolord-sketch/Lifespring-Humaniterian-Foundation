@@ -7,18 +7,13 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
-import { createAgreementPdf } from "./agreementTemplates.js";
+import { agreementFilename, createAgreementPdf } from "./agreementTemplates.js";
 import {
   createReference,
   JsonRecordStore,
   type AgreementRecord,
   type ApplicationStatus,
 } from "./records.js";
-import {
-  getDocuSignConfigurationStatus,
-  sendCommunitySupportAgreement,
-  sendScholarshipAgreement,
-} from "./docusignService.js";
 
 dotenv.config();
 
@@ -97,6 +92,8 @@ const scholarshipUpload = upload.fields([
   { name: "currentBill", maxCount: 1 },
   { name: "supportingDocument", maxCount: 1 },
 ]);
+
+const signedAgreementUpload = upload.single("signedAgreement");
 
 type UploadedFileMap = {
   [fieldname: string]: Express.Multer.File[];
@@ -254,6 +251,25 @@ function requireAdmin(req: Request, res: Response, next: express.NextFunction) {
 
 function accepted(value: unknown) {
   return value === "accepted" || value === "on" || value === true;
+}
+
+function createAgreementReference(applicationType: "SCHOLARSHIP" | "COMMUNITY_SUPPORT") {
+  const year = new Date().getFullYear();
+  const prefix = applicationType === "SCHOLARSHIP" ? "LHF-SCH-AGR" : "LHF-COM-AGR";
+  const existingForYear = recordStore
+    .all()
+    .agreements.filter((agreement) =>
+      agreement.agreementReference.startsWith(`${prefix}-${year}`)
+    ).length;
+
+  return `${prefix}-${year}-${String(existingForYear + 1).padStart(4, "0")}`;
+}
+
+function isAcceptedSignedAgreement(file: Express.Multer.File) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const allowedExtensions = [".pdf", ".jpg", ".jpeg", ".png"];
+  const allowedMimeTypes = ["application/pdf", "image/jpeg", "image/png"];
+  return allowedExtensions.includes(ext) && allowedMimeTypes.includes(file.mimetype);
 }
 
 function createAcknowledgements(
@@ -948,7 +964,7 @@ app.get("/api/admin/applications", requireAdmin, (_req, res) => {
 app.get("/api/admin/agreements", requireAdmin, (_req, res) => {
   return res.status(200).json({
     agreements: recordStore.all().agreements,
-    docusign: getDocuSignConfigurationStatus(),
+    signingMode: "manual_email",
   });
 });
 
@@ -962,9 +978,11 @@ app.post(
       "UNDER_REVIEW",
       "MORE_INFORMATION_REQUIRED",
       "APPROVED_PENDING_AGREEMENT",
+      "AGREEMENT_GENERATED",
       "AGREEMENT_SENT",
       "AGREEMENT_VIEWED",
-      "AGREEMENT_SIGNED",
+      "SIGNED_AGREEMENT_RECEIVED",
+      "SUPPORT_READY_FOR_RELEASE",
       "COMPLETED",
       "DECLINED",
       "SUSPENDED",
@@ -988,6 +1006,44 @@ app.post(
     return res.status(200).json({ message: "Status updated", application });
   }
 );
+
+app.post("/api/admin/application-status", requireAdmin, (req, res) => {
+  const { applicationId, status } = req.body as {
+    applicationId?: string;
+    status?: ApplicationStatus;
+  };
+  const validStatuses: ApplicationStatus[] = [
+    "SUBMITTED",
+    "UNDER_REVIEW",
+    "MORE_INFORMATION_REQUIRED",
+    "APPROVED_PENDING_AGREEMENT",
+    "AGREEMENT_GENERATED",
+    "AGREEMENT_SENT",
+    "AGREEMENT_VIEWED",
+    "SIGNED_AGREEMENT_RECEIVED",
+    "SUPPORT_READY_FOR_RELEASE",
+    "COMPLETED",
+    "DECLINED",
+    "SUSPENDED",
+    "WITHDRAWN",
+  ];
+
+  if (!applicationId || !status || !validStatuses.includes(status)) {
+    return res.status(400).json({ message: "Invalid status update" });
+  }
+
+  const application = recordStore.updateApplicationStatus(
+    applicationId,
+    status,
+    req.header("x-admin-id") || "admin"
+  );
+
+  if (!application) {
+    return res.status(404).json({ message: "Application not found" });
+  }
+
+  return res.status(200).json({ message: "Application status updated", application });
+});
 
 app.post(
   "/api/admin/applications/:applicationId/prepare-agreement",
@@ -1018,29 +1074,39 @@ app.post(
       });
     }
 
-    const agreementReference = createReference(
-      application.type === "SCHOLARSHIP" ? "LHF-SCH-AGR" : "LHF-CSP-AGR"
-    );
-    const agreementPath = path.join(agreementDir, `${agreementReference}.pdf`);
+    const agreementReference = createAgreementReference(application.type);
+    const filename = agreementFilename(application.type, application.reference);
+    const agreementPath = path.join(agreementDir, filename);
     const data = application.data as Record<string, string>;
+    const approvedAt = new Date();
+    const adminId = req.header("x-admin-id") || "admin";
 
     await createAgreementPdf(
       application.type,
       {
         agreementReference,
         applicationReference: application.reference,
-        date: new Date().toLocaleDateString("en-GB"),
+        date: approvedAt.toLocaleDateString("en-GB"),
+        policyVersion: application.acknowledgements[0]?.policyVersion || "1.0",
         beneficiaryFullName: application.applicantName,
         parentGuardianFullName: data.guardianName,
+        relationshipToBeneficiary: "Parent/Guardian",
         address: data.homeAddress,
         telephone: application.applicantPhone,
         email: application.applicantEmail,
         school: data.schoolName,
         classLevel: data.classLevel,
+        academicSession: data.academicSession,
+        scholarshipType: application.type === "SCHOLARSHIP" ? "Primary school scholarship support" : undefined,
         supportCategory: data.supportCategory,
         approvedPurpose: data.academicNeed || data.supportNeeded,
         approvedSupport: data.supportNeeded,
+        monetaryValue: data.approvedAmount,
+        paymentArrangement: data.paymentArrangement,
+        expectedDeliveryDate: data.expectedDeliveryDate,
+        conditions: data.conditions,
         foundationRepresentative: "Lifespring Representative",
+        logoPath: path.resolve(__dirname, "..", "public", "logo.png"),
       },
       agreementPath
     );
@@ -1051,19 +1117,21 @@ app.post(
       agreementType: application.type,
       agreementReference,
       policyVersion: application.acknowledgements[0]?.policyVersion || "1.0",
-      status: "READY",
-      signedDocumentPathOrSecureObjectKey: agreementPath,
-      createdByAdminId: req.header("x-admin-id") || "admin",
+      status: "GENERATED",
+      generatedPdfPathOrObjectKey: agreementPath,
+      generatedAt: approvedAt.toISOString(),
+      generatedByAdminId: adminId,
+      createdByAdminId: adminId,
     });
 
     recordStore.updateApplicationStatus(
       application.id,
-      "APPROVED_PENDING_AGREEMENT",
-      req.header("x-admin-id") || "admin"
+      "AGREEMENT_GENERATED",
+      adminId
     );
 
     return res.status(200).json({
-      message: "Agreement prepared for preview and signature workflow",
+      message: "Agreement generated and saved for secure admin access",
       agreement,
     });
   }
@@ -1081,8 +1149,8 @@ app.post(
       return res.status(404).json({ message: "Agreement not found" });
     }
 
-    if (agreement.status === "SENT" || agreement.status === "SIGNED") {
-      return res.status(409).json({ message: "Agreement has already been sent" });
+    if (["SIGNED_RECEIVED", "COMPLETED", "VOIDED"].includes(agreement.status)) {
+      return res.status(409).json({ message: "This agreement cannot be resent in its current status" });
     }
 
     const application = recordStore
@@ -1097,56 +1165,218 @@ app.post(
       return res.status(400).json({ message: "Missing applicant email" });
     }
 
+    const pdfPath = agreement.generatedPdfPathOrObjectKey || agreement.signedDocumentPathOrSecureObjectKey;
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      return res.status(404).json({ message: "Generated agreement PDF was not found" });
+    }
+
     try {
-      const sender =
-        agreement.agreementType === "SCHOLARSHIP"
-          ? sendScholarshipAgreement
-          : sendCommunitySupportAgreement;
-
-      const result = await sender({
-        agreementReference: agreement.agreementReference,
-        applicationReference: application.reference,
-        agreementType: agreement.agreementType,
-        applicantName: application.applicantName,
-        applicantEmail: application.applicantEmail,
-        fields: application.data as Record<string, string>,
-      });
-
+      const now = new Date().toISOString();
       const updated = recordStore.updateAgreement(agreement.id, {
         status: "SENT",
-        sentAt: new Date().toISOString(),
-        docusignEnvelopeId: result.envelopeId,
-      }) as AgreementRecord;
+        sentAt: agreement.sentAt || now,
+        lastSentAt: now,
+        sendCount: (agreement.sendCount || 0) + 1,
+      }, req.header("x-admin-id") || "admin", "agreement.sent") as AgreementRecord;
 
       recordStore.updateApplicationStatus(application.id, "AGREEMENT_SENT");
 
       await transporter.sendMail({
         from: MAIL_FROM,
         to: application.applicantEmail,
-        subject: "Your Lifespring Agreement Is Ready for Signature",
+        subject: `Lifespring Beneficiary Agreement - Action Required - ${application.reference}`,
         text: `
 Dear ${application.applicantName},
 
-Your Lifespring agreement is ready for signature.
+Congratulations.
+
+Your application to Lifespring Humanitarian Foundation has been approved.
+
+Attached is your Beneficiary Agreement and Code of Conduct.
+
+Please:
+
+1. read the document carefully;
+2. complete the required signature section;
+3. sign and date the agreement;
+4. return the signed document by email to:
+
+info@lifespringhf.org
+
+Please use the following subject when returning the signed document:
+
+SIGNED AGREEMENT - ${application.reference}
+
+Your approved support may proceed after the signed agreement has been received and verified by Lifespring Humanitarian Foundation.
 
 Application Reference: ${application.reference}
 Agreement Reference: ${agreement.agreementReference}
 Agreement Type: ${agreement.agreementType}
+
+Kind regards,
+
+Lifespring Humanitarian Foundation
+Restoring Hope. Empowering Futures.
         `,
+        attachments: [
+          {
+            filename: path.basename(pdfPath),
+            path: pdfPath,
+          },
+        ],
+      });
+
+      await transporter.sendMail({
+        from: MAIL_FROM,
+        to: MAIL_TO,
+        subject: `Agreement Sent - ${application.reference}`,
+        text: `Agreement sent.\n\nApplicant: ${application.applicantName}\nApplication Reference: ${application.reference}\nAgreement Reference: ${agreement.agreementReference}\nApplication Type: ${agreement.agreementType}\nDate Sent: ${now}`,
       });
 
       return res.status(200).json({ message: "Agreement sent", agreement: updated });
     } catch (error) {
-      recordStore.updateAgreement(agreement.id, { status: "ERROR" });
+      recordStore.updateAgreement(agreement.id, { status: "ERROR" }, req.header("x-admin-id") || "admin", "agreement.email_failed");
       return res.status(503).json({
         message:
           error instanceof Error
             ? error.message
-            : "DocuSign could not send the agreement",
+            : "Agreement email could not be sent",
       });
     }
   }
 );
+
+app.get("/api/admin/agreements/:agreementId/download", requireAdmin, (req, res) => {
+  const agreement = recordStore
+    .all()
+    .agreements.find((item) => item.id === req.params.agreementId);
+
+  if (!agreement) {
+    return res.status(404).json({ message: "Agreement not found" });
+  }
+
+  const pdfPath = agreement.generatedPdfPathOrObjectKey || agreement.signedDocumentPathOrSecureObjectKey;
+  if (!pdfPath || !fs.existsSync(pdfPath)) {
+    return res.status(404).json({ message: "Agreement PDF was not found" });
+  }
+
+  recordStore.updateAgreement(agreement.id, {}, req.header("x-admin-id") || "admin", "agreement.downloaded");
+  return res.download(pdfPath, path.basename(pdfPath));
+});
+
+app.post(
+  "/api/admin/agreements/:agreementId/upload-signed",
+  requireAdmin,
+  signedAgreementUpload,
+  (req, res) => {
+    const agreement = recordStore
+      .all()
+      .agreements.find((item) => item.id === req.params.agreementId);
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "Upload a signed agreement file" });
+    }
+    if (!isAcceptedSignedAgreement(req.file)) {
+      fs.unlink(req.file.path, () => undefined);
+      return res.status(400).json({ message: "Signed agreement must be PDF, JPG or PNG" });
+    }
+
+    const application = recordStore
+      .all()
+      .applications.find((item) => item.id === agreement.applicationId);
+
+    if (!application) {
+      return res.status(404).json({ message: "Application not found" });
+    }
+
+    const now = new Date().toISOString();
+    const adminId = req.header("x-admin-id") || "admin";
+    const updated = recordStore.updateAgreement(agreement.id, {
+      status: "SIGNED_RECEIVED",
+      signedPdfPathOrObjectKey: req.file.path,
+      signedDocumentPathOrSecureObjectKey: req.file.path,
+      signedReceivedAt: now,
+      signedUploadedByAdminId: adminId,
+      notes: typeof req.body.note === "string" ? req.body.note : agreement.notes,
+    }, adminId, "agreement.signed_uploaded");
+
+    recordStore.updateApplicationStatus(application.id, "SIGNED_AGREEMENT_RECEIVED", adminId);
+    return res.status(200).json({ message: "Signed agreement uploaded and recorded", agreement: updated });
+  }
+);
+
+app.post("/api/admin/agreements/:agreementId/mark-signed", requireAdmin, (req, res) => {
+  const agreement = recordStore
+    .all()
+    .agreements.find((item) => item.id === req.params.agreementId);
+  if (!agreement) {
+    return res.status(404).json({ message: "Agreement not found" });
+  }
+  const application = recordStore.all().applications.find((item) => item.id === agreement.applicationId);
+  if (!application) {
+    return res.status(404).json({ message: "Application not found" });
+  }
+  const now = new Date().toISOString();
+  const adminId = req.header("x-admin-id") || "admin";
+  const updated = recordStore.updateAgreement(agreement.id, {
+    status: "SIGNED_RECEIVED",
+    signedReceivedAt: now,
+    notes: typeof req.body?.note === "string" ? req.body.note : agreement.notes,
+  }, adminId, "agreement.signed_confirmed");
+  recordStore.updateApplicationStatus(application.id, "SIGNED_AGREEMENT_RECEIVED", adminId);
+  return res.status(200).json({ message: "Signed agreement marked as received", agreement: updated });
+});
+
+app.post("/api/admin/agreements/:agreementId/support-ready", requireAdmin, (req, res) => {
+  const agreement = recordStore
+    .all()
+    .agreements.find((item) => item.id === req.params.agreementId);
+  if (!agreement) {
+    return res.status(404).json({ message: "Agreement not found" });
+  }
+  if (agreement.status !== "SIGNED_RECEIVED") {
+    return res.status(409).json({ message: "Signed agreement must be received before support is marked ready" });
+  }
+  const application = recordStore.all().applications.find((item) => item.id === agreement.applicationId);
+  if (!application) {
+    return res.status(404).json({ message: "Application not found" });
+  }
+  const now = new Date().toISOString();
+  const adminId = req.header("x-admin-id") || "admin";
+  const updated = recordStore.updateAgreement(agreement.id, {
+    supportReadyAt: now,
+  }, adminId, "support.marked_ready");
+  recordStore.updateApplicationStatus(application.id, "SUPPORT_READY_FOR_RELEASE", adminId);
+  return res.status(200).json({ message: "Support marked ready for release", agreement: updated });
+});
+
+app.post("/api/admin/agreements/:agreementId/complete", requireAdmin, (req, res) => {
+  const agreement = recordStore
+    .all()
+    .agreements.find((item) => item.id === req.params.agreementId);
+  if (!agreement) {
+    return res.status(404).json({ message: "Agreement not found" });
+  }
+  if (!agreement.supportReadyAt) {
+    return res.status(409).json({ message: "Support must be marked ready before completion" });
+  }
+  const application = recordStore.all().applications.find((item) => item.id === agreement.applicationId);
+  if (!application) {
+    return res.status(404).json({ message: "Application not found" });
+  }
+  const now = new Date().toISOString();
+  const adminId = req.header("x-admin-id") || "admin";
+  const updated = recordStore.updateAgreement(agreement.id, {
+    status: "COMPLETED",
+    completedAt: now,
+  }, adminId, "application.completed");
+  recordStore.updateApplicationStatus(application.id, "COMPLETED", adminId);
+  return res.status(200).json({ message: "Application completed", agreement: updated });
+});
 
 app.post("/api/docusign/webhook", (req, res) => {
   try {

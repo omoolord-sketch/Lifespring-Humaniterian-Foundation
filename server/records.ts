@@ -6,22 +6,24 @@ export type ApplicationStatus =
   | "UNDER_REVIEW"
   | "MORE_INFORMATION_REQUIRED"
   | "APPROVED_PENDING_AGREEMENT"
+  | "AGREEMENT_GENERATED"
   | "AGREEMENT_SENT"
   | "AGREEMENT_VIEWED"
-  | "AGREEMENT_SIGNED"
+  | "SIGNED_AGREEMENT_RECEIVED"
+  | "SUPPORT_READY_FOR_RELEASE"
   | "COMPLETED"
   | "DECLINED"
   | "SUSPENDED"
   | "WITHDRAWN";
 
 export type AgreementStatus =
-  | "DRAFT"
-  | "READY"
+  | "GENERATED"
   | "SENT"
   | "VIEWED"
-  | "SIGNED"
+  | "SIGNED_RECEIVED"
   | "COMPLETED"
   | "VOIDED"
+  | "SUPERSEDED"
   | "ERROR";
 
 export type StoredApplication = {
@@ -56,10 +58,19 @@ export type AgreementRecord = {
   policyVersion: string;
   docusignEnvelopeId?: string;
   status: AgreementStatus;
+  generatedPdfPathOrObjectKey?: string;
+  signedPdfPathOrObjectKey?: string;
+  generatedAt?: string;
   sentAt?: string;
+  lastSentAt?: string;
+  sendCount?: number;
   viewedAt?: string;
-  signedAt?: string;
+  signedReceivedAt?: string;
+  supportReadyAt?: string;
   completedAt?: string;
+  generatedByAdminId?: string;
+  signedUploadedByAdminId?: string;
+  notes?: string;
   signedDocumentPathOrSecureObjectKey?: string;
   certificatePathOrSecureObjectKey?: string;
   createdByAdminId?: string;
@@ -171,16 +182,22 @@ export class JsonRecordStore {
     return agreement;
   }
 
-  updateAgreement(agreementId: string, update: Partial<AgreementRecord>) {
+  updateAgreement(
+    agreementId: string,
+    update: Partial<AgreementRecord>,
+    adminId = "admin",
+    event = "agreement.updated"
+  ) {
     const agreement = this.store.agreements.find((item) => item.id === agreementId);
     if (!agreement) {
       return undefined;
     }
     Object.assign(agreement, update, { updatedAt: new Date().toISOString() });
-    this.audit("agreement.updated", "agreement", agreement.id, {
+    this.audit(event, "agreement", agreement.id, {
       status: agreement.status,
       docusignEnvelopeId: agreement.docusignEnvelopeId,
-    });
+      adminId,
+    }, adminId);
     this.save();
     return agreement;
   }

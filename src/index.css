@@ -71,6 +71,24 @@ textarea {
   max-width: 560px;
 }
 
+.admin-action {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  border: 1px solid #d9c8a5;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--lifespring-burgundy);
+  background: #fffdf8;
+}
+
+.admin-action:hover {
+  background: #fff7e6;
+}
+
 @media (max-width: 640px) {
   .lifespring-hero-copy,
   .lifespring-hero-actions,

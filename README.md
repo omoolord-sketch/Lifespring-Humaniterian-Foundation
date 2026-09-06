@@ -66,9 +66,11 @@ The backend supports the following agreement status architecture:
 - `UNDER_REVIEW`
 - `MORE_INFORMATION_REQUIRED`
 - `APPROVED_PENDING_AGREEMENT`
+- `AGREEMENT_GENERATED`
 - `AGREEMENT_SENT`
 - `AGREEMENT_VIEWED`
-- `AGREEMENT_SIGNED`
+- `SIGNED_AGREEMENT_RECEIVED`
+- `SUPPORT_READY_FOR_RELEASE`
 - `COMPLETED`
 - `DECLINED`
 - `SUSPENDED`
@@ -77,46 +79,18 @@ The backend supports the following agreement status architecture:
 Admin workflow:
 
 1. Load `/admin/agreements` using `ADMIN_API_TOKEN`.
-2. Prepare an agreement for an eligible submitted application.
-3. Preview PDF output stored under `server/agreements`.
-4. Send the agreement for signature once DocuSign is configured.
-5. DocuSign webhook endpoint records future signed status events once Connect
-   verification is configured.
+2. Review an eligible Scholarship or Community Support application.
+3. Generate a letterheaded Beneficiary Agreement & Code of Conduct PDF.
+4. Download the generated PDF for preview if needed.
+5. Email the agreement to the applicant with the PDF attached.
+6. Applicant signs and returns the agreement by email.
+7. Admin uploads the signed copy or explicitly marks it as received.
+8. Admin marks support ready for release.
+9. Admin completes the application when the support process is finished.
 
-The current implementation does not fake production signatures. If DocuSign is
-not configured, sending returns `DocuSign integration not configured.`
-
-## DocuSign Integration
-
-The integration abstraction lives in `server/docusignService.ts`.
-
-Environment variables:
-
-```env
-DOCUSIGN_ENVIRONMENT=development
-DOCUSIGN_INTEGRATION_KEY=
-DOCUSIGN_USER_ID=
-DOCUSIGN_ACCOUNT_ID=
-DOCUSIGN_BASE_PATH=
-DOCUSIGN_AUTH_SERVER=
-DOCUSIGN_PRIVATE_KEY=
-DOCUSIGN_WEBHOOK_SECRET=
-DOCUSIGN_RETURN_URL=
-DOCUSIGN_SCHOLARSHIP_TEMPLATE_NAME=LHF_SCHOLARSHIP_BENEFICIARY_AGREEMENT
-DOCUSIGN_COMMUNITY_SUPPORT_TEMPLATE_NAME=LHF_COMMUNITY_SUPPORT_BENEFICIARY_AGREEMENT
-```
-
-Production setup still required:
-
-- official DocuSign developer or production account
-- Integration Key
-- API User ID
-- Account ID
-- JWT private key
-- production/demo base path and auth server
-- Connect webhook secret
-- DocuSign templates matching the template names above
-- field mapping review for signer tabs and recipient routing
+This workflow works without DocuSign. The old DocuSign service file is retained
+only as a future integration point; the active admin send action uses normal
+email with the generated PDF attached.
 
 ## Email Notifications
 
@@ -145,9 +119,11 @@ Records are stored in `server/data/records.json`:
 - complaints and concern reports
 - audit log
 
-Uploaded files are stored under `server/uploads`. Agreement preview PDFs are
-stored under `server/agreements`. These paths are not publicly exposed by the
-frontend. For production, replace local JSON/file storage with protected
+Uploaded files are stored under `server/uploads`. Generated agreement PDFs are
+stored under `server/agreements`; signed copies are stored under the protected
+upload area and linked to the agreement record. These paths are not publicly
+exposed by the frontend. Admins download agreements through authenticated API
+routes only. For production, replace local JSON/file storage with protected
 database and object storage.
 
 ## Admin Security
@@ -225,9 +201,14 @@ that folder.
 - submit concern report and confirm reference begins `LHF-CON`
 - set `ADMIN_API_TOKEN`, open `/admin/agreements`, and load records
 - on Hostinger PHP fallback, open `/admin/agreements`, enter the admin token,
-  expand a submitted application, then use Approve, Under Review or Decline
-- prepare agreement for an eligible application
-- confirm declined, withdrawn and suspended applications cannot prepare agreements
-- attempt send without DocuSign credentials and confirm it clearly reports not configured
-- configure DocuSign credentials/templates before testing live signature sending
+  expand a submitted application, then use Generate Agreement, Generate & Send,
+  Under Review or Decline
+- generate an agreement for an eligible application
+- download the generated PDF and confirm the Lifespring letterhead, footer,
+  references, code-of-conduct sections and signature blocks are present
+- send the agreement and confirm the applicant email receives the attached PDF
+- upload a signed PDF/JPG/PNG from the admin dashboard
+- confirm support cannot be marked ready before a signed agreement is recorded
+- mark support ready, then complete the application
+- confirm declined, withdrawn and suspended applications cannot generate agreements
 - verify `server/data/records.json` contains audit entries without secrets

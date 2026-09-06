@@ -88,6 +88,82 @@ function lhf_update_application_status(string $applicationId, string $status): ?
     return null;
 }
 
+function lhf_find_application(string $applicationId): ?array {
+    $records = lhf_records();
+    foreach ($records['applications'] as $application) {
+        if (($application['id'] ?? '') === $applicationId) {
+            return $application;
+        }
+    }
+    return null;
+}
+
+function lhf_find_agreement(string $agreementId): ?array {
+    $records = lhf_records();
+    foreach ($records['agreements'] as $agreement) {
+        if (($agreement['id'] ?? '') === $agreementId) {
+            return $agreement;
+        }
+    }
+    return null;
+}
+
+function lhf_find_agreement_by_application(string $applicationId): ?array {
+    $records = lhf_records();
+    foreach ($records['agreements'] as $agreement) {
+        if (($agreement['applicationId'] ?? '') === $applicationId) {
+            return $agreement;
+        }
+    }
+    return null;
+}
+
+function lhf_add_agreement(array $agreement): array {
+    $records = lhf_records();
+    $now = gmdate('c');
+    $agreement = array_merge($agreement, [
+        'id' => lhf_id('agr'),
+        'createdAt' => $now,
+        'updatedAt' => $now,
+    ]);
+    array_unshift($records['agreements'], $agreement);
+    lhf_audit($records, 'agreement.created', 'agreement', $agreement['id'], [
+        'applicationId' => $agreement['applicationId'] ?? '',
+        'agreementReference' => $agreement['agreementReference'] ?? '',
+    ]);
+    lhf_save_records($records);
+    return $agreement;
+}
+
+function lhf_update_agreement(string $agreementId, array $update, string $event = 'agreement.updated'): ?array {
+    $records = lhf_records();
+    foreach ($records['agreements'] as &$agreement) {
+        if (($agreement['id'] ?? '') === $agreementId) {
+            $agreement = array_merge($agreement, $update, ['updatedAt' => gmdate('c')]);
+            lhf_audit($records, $event, 'agreement', $agreementId, [
+                'status' => $agreement['status'] ?? '',
+                'applicationId' => $agreement['applicationId'] ?? '',
+            ]);
+            lhf_save_records($records);
+            return $agreement;
+        }
+    }
+    return null;
+}
+
+function lhf_agreement_ref(string $type): string {
+    $records = lhf_records();
+    $year = gmdate('Y');
+    $prefix = $type === 'SCHOLARSHIP' ? 'LHF-SCH-AGR' : 'LHF-COM-AGR';
+    $count = 1;
+    foreach ($records['agreements'] as $agreement) {
+        if (str_starts_with((string)($agreement['agreementReference'] ?? ''), $prefix . '-' . $year)) {
+            $count++;
+        }
+    }
+    return sprintf('%s-%s-%04d', $prefix, $year, $count);
+}
+
 function lhf_add_complaint(array $complaint): array {
     $records = lhf_records();
     $now = gmdate('c');

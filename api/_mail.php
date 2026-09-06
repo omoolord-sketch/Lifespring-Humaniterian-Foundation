@@ -96,10 +96,11 @@ function lhf_send_mail(string $to, string $subject, string $body, string $replyT
     $message .= $body . "\r\n";
 
     foreach ($attachments as $attachment) {
-        if (!is_uploaded_file($attachment['tmp_name'])) {
+        $tmpName = (string)($attachment['tmp_name'] ?? $attachment['path'] ?? '');
+        if ($tmpName === '' || (!is_uploaded_file($tmpName) && !is_file($tmpName))) {
             continue;
         }
-        $content = chunk_split(base64_encode((string)file_get_contents($attachment['tmp_name'])));
+        $content = chunk_split(base64_encode((string)file_get_contents($tmpName)));
         $message .= "--{$boundary}\r\n";
         $message .= "Content-Type: {$attachment['type']}; name=\"{$attachment['name']}\"\r\n";
         $message .= "Content-Disposition: attachment; filename=\"{$attachment['name']}\"\r\n";

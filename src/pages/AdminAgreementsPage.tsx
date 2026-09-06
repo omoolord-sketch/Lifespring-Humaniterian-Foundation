@@ -31,6 +31,7 @@ type AgreementRecord = {
 
 const filters = [
   "All",
+  "Approved - Agreement Needed",
   "Generated",
   "Sent",
   "Awaiting Signed Copy",
@@ -48,6 +49,21 @@ const statusOptions = [
   "SUSPENDED",
   "WITHDRAWN",
 ];
+
+const awaitingSignatureStatuses = ["SENT", "VIEWED"];
+const inactiveAgreementStatuses = ["VOIDED", "SUPERSEDED"];
+
+type WorkflowRow =
+  | {
+      kind: "application";
+      application: ApplicationRecord;
+      agreement?: undefined;
+    }
+  | {
+      kind: "agreement";
+      application?: ApplicationRecord;
+      agreement: AgreementRecord;
+    };
 
 export default function AdminAgreementsPage() {
   const [token, setToken] = useState(localStorage.getItem("lhfAdminToken") || "");
@@ -81,39 +97,93 @@ export default function AdminAgreementsPage() {
   );
 
   const counts = useMemo(() => {
-    return {
-      generated: agreements.filter((item) => item.status === "GENERATED").length,
-      awaitingSignature: agreements.filter((item) => ["GENERATED", "SENT", "VIEWED"].includes(item.status)).length,
-      signed: agreements.filter((item) => item.status === "SIGNED_RECEIVED").length,
-      ready: agreements.filter((item) => item.supportReadyAt).length,
-    };
-  }, [agreements]);
+    const approvedNeedsAgreement = applications.filter(
+      (item) => item.status === "APPROVED_PENDING_AGREEMENT" && !agreementByApplicationId.has(item.id)
+    ).length;
 
-  const filteredAgreements = agreements.filter((agreement) => {
-    const application = applicationById.get(agreement.applicationId);
+    return {
+      approvedNeedsAgreement,
+      generated: agreements.filter((item) => item.status === "GENERATED").length,
+      awaitingSignature: agreements.filter((item) => awaitingSignatureStatuses.includes(item.status)).length,
+      signed: agreements.filter((item) => item.status === "SIGNED_RECEIVED" && !item.supportReadyAt).length,
+      ready: agreements.filter((item) => item.supportReadyAt && item.status !== "COMPLETED").length,
+      completed: agreements.filter((item) => item.status === "COMPLETED").length,
+    };
+  }, [applications, agreementByApplicationId, agreements]);
+
+  const workflowRows = useMemo<WorkflowRow[]>(() => {
+    const approvedRows = applications
+      .filter((application) => application.status === "APPROVED_PENDING_AGREEMENT" && !agreementByApplicationId.has(application.id))
+      .map((application) => ({ kind: "application" as const, application }));
+
+    const agreementRows = agreements.map((agreement) => ({
+      kind: "agreement" as const,
+      application: applicationById.get(agreement.applicationId),
+      agreement,
+    }));
+
+    return [...approvedRows, ...agreementRows];
+  }, [agreements, agreementByApplicationId, applicationById, applications]);
+
+  const filteredWorkflowRows = workflowRows.filter((row) => {
+    const application = row.application;
+    const agreement = row.kind === "agreement" ? row.agreement : undefined;
     const haystack = [
-      agreement.agreementReference,
-      agreement.agreementType,
-      agreement.status,
       application?.applicantName,
       application?.applicantEmail,
       application?.reference,
+      agreement?.agreementReference,
+      agreement?.agreementType,
+      agreement?.status,
     ]
       .join(" ")
       .toLowerCase();
     const matchesQuery = haystack.includes(query.toLowerCase());
     const matchesFilter =
       filter === "All" ||
-      (filter === "Generated" && agreement.status === "GENERATED") ||
-      (filter === "Sent" && agreement.status === "SENT") ||
-      (filter === "Awaiting Signed Copy" && ["GENERATED", "SENT", "VIEWED"].includes(agreement.status)) ||
-      (filter === "Signed Received" && agreement.status === "SIGNED_RECEIVED") ||
-      (filter === "Support Ready" && Boolean(agreement.supportReadyAt)) ||
-      (filter === "Completed" && agreement.status === "COMPLETED") ||
-      (filter === "Cancelled/Voided" && ["VOIDED", "SUPERSEDED"].includes(agreement.status));
+      (filter === "Approved - Agreement Needed" && row.kind === "application") ||
+      (filter === "Generated" && agreement?.status === "GENERATED") ||
+      (filter === "Sent" && agreement?.status === "SENT") ||
+      (filter === "Awaiting Signed Copy" && Boolean(agreement && awaitingSignatureStatuses.includes(agreement.status))) ||
+      (filter === "Signed Received" && agreement?.status === "SIGNED_RECEIVED" && !agreement.supportReadyAt) ||
+      (filter === "Support Ready" && Boolean(agreement?.supportReadyAt) && agreement?.status !== "COMPLETED") ||
+      (filter === "Completed" && agreement?.status === "COMPLETED") ||
+      (filter === "Cancelled/Voided" && Boolean(agreement && inactiveAgreementStatuses.includes(agreement.status)));
 
     return matchesQuery && matchesFilter;
   });
+
+  const channelCards = [
+    {
+      label: "Approved - Agreement Needed",
+      value: counts.approvedNeedsAgreement,
+      helper: "Approved applications ready for agreement generation.",
+    },
+    {
+      label: "Agreements Pending Send",
+      filter: "Generated",
+      value: counts.generated,
+      helper: "Generated agreements that still need to be emailed.",
+    },
+    {
+      label: "Agreements Awaiting Signature",
+      filter: "Awaiting Signed Copy",
+      value: counts.awaitingSignature,
+      helper: "Sent agreements waiting for the applicant's signed copy.",
+    },
+    {
+      label: "Signed Agreements Received",
+      filter: "Signed Received",
+      value: counts.signed,
+      helper: "Signed agreements waiting for support release approval.",
+    },
+    {
+      label: "Support Ready for Release",
+      filter: "Support Ready",
+      value: counts.ready,
+      helper: "Cases approved for practical support release.",
+    },
+  ];
 
   const loadRecords = useCallback(async (currentToken = token) => {
     if (!currentToken) {
@@ -352,18 +422,35 @@ export default function AdminAgreementsPage() {
         )}
       </section>
 
-      <section className="mt-8 grid gap-4 md:grid-cols-4">
-        {[
-          ["Agreements Pending Send", counts.generated],
-          ["Agreements Awaiting Signature", counts.awaitingSignature],
-          ["Signed Agreements Received", counts.signed],
-          ["Support Ready for Release", counts.ready],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-md border border-[#eadfcb] bg-white p-4 shadow-sm">
-            <p className="text-2xl font-extrabold text-[var(--lifespring-burgundy)]">{value}</p>
-            <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--lifespring-muted)]">{label}</p>
-          </div>
-        ))}
+      <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {channelCards.map((channel) => {
+          const channelFilter = channel.filter || channel.label;
+          const selected = filter === channelFilter;
+
+          return (
+            <button
+              key={channel.label}
+              type="button"
+              onClick={() => setFilter(channelFilter)}
+              aria-pressed={selected}
+              className={`rounded-md border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--lifespring-gold)] hover:shadow-md ${
+                selected
+                  ? "border-[var(--lifespring-gold)] bg-[#fff7e6] ring-2 ring-[var(--lifespring-gold)]/30"
+                  : "border-[#eadfcb] bg-white"
+              }`}
+            >
+              <span className="block text-2xl font-extrabold text-[var(--lifespring-burgundy)]">
+                {channel.value}
+              </span>
+              <span className="mt-1 block text-xs font-bold uppercase tracking-[0.12em] text-[var(--lifespring-muted)]">
+                {channel.label}
+              </span>
+              <span className="mt-3 block text-xs leading-5 text-[var(--lifespring-muted)]">
+                {channel.helper}
+              </span>
+            </button>
+          );
+        })}
       </section>
 
       <section className="mt-8 rounded-md border border-[#eadfcb] bg-white p-5 shadow-sm">
@@ -391,6 +478,20 @@ export default function AdminAgreementsPage() {
           </label>
         </div>
 
+        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md bg-[#fff7e6] px-4 py-3 text-sm text-[var(--lifespring-muted)]">
+          <span className="font-bold text-[var(--lifespring-burgundy)]">Monitoring channel:</span>
+          <span>{filter}</span>
+          {filter !== "All" && (
+            <button
+              type="button"
+              onClick={() => setFilter("All")}
+              className="rounded-md border border-[#d9c8a5] px-3 py-1 text-xs font-bold text-[var(--lifespring-burgundy)] hover:bg-white"
+            >
+              Show all
+            </button>
+          )}
+        </div>
+
         <div className="mt-6 overflow-x-auto">
           <table className="min-w-[1120px] w-full text-left text-sm">
             <thead className="bg-[#fff7e6] text-[var(--lifespring-burgundy)]">
@@ -406,46 +507,64 @@ export default function AdminAgreementsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredAgreements.map((agreement) => {
-                const application = applicationById.get(agreement.applicationId);
+              {filteredWorkflowRows.map((row) => {
+                const agreement = row.kind === "agreement" ? row.agreement : undefined;
+                const application = row.application;
+                const rowKey = agreement?.id || application?.id || "unknown-row";
+                const status = agreement?.status || application?.status || "Unknown";
                 return (
-                  <tr key={agreement.id} className="border-b border-[#eadfcb] align-top">
-                    <td className="px-4 py-4 font-semibold">{agreement.agreementReference}</td>
+                  <tr key={rowKey} className="border-b border-[#eadfcb] align-top">
+                    <td className="px-4 py-4 font-semibold">
+                      {agreement?.agreementReference || "Not generated"}
+                    </td>
                     <td className="px-4 py-4">
                       <p>{application?.applicantName || "Unknown"}</p>
                       <p className="text-xs text-[var(--lifespring-muted)]">{application?.applicantEmail}</p>
                     </td>
                     <td className="px-4 py-4">{application?.reference || "Unknown"}</td>
-                    <td className="px-4 py-4">{agreement.agreementType}</td>
-                    <td className="px-4 py-4">{agreement.status}</td>
-                    <td className="px-4 py-4">{agreement.lastSentAt || agreement.sentAt || "-"}</td>
-                    <td className="px-4 py-4">{agreement.signedReceivedAt || "-"}</td>
+                    <td className="px-4 py-4">{agreement?.agreementType || "Pending agreement"}</td>
+                    <td className="px-4 py-4">{status}</td>
+                    <td className="px-4 py-4">{agreement?.lastSentAt || agreement?.sentAt || "-"}</td>
+                    <td className="px-4 py-4">{agreement?.signedReceivedAt || "-"}</td>
                     <td className="min-w-[320px] px-4 py-4">
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => void downloadAgreement(agreement.id)} className="admin-action">
-                          Download
-                        </button>
-                        <button type="button" onClick={() => void sendAgreement(agreement.id)} className="admin-action">
-                          {agreement.sentAt ? "Resend" : "Send"}
-                        </button>
-                        <label className="admin-action cursor-pointer">
-                          Upload Signed
-                          <input
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            className="sr-only"
-                            onChange={(event) => void uploadSignedAgreement(agreement.id, event.currentTarget.files?.[0])}
-                          />
-                        </label>
-                        <button type="button" onClick={() => void markSigned(agreement.id)} className="admin-action">
-                          Mark Signed
-                        </button>
-                        <button type="button" onClick={() => void markSupportReady(agreement.id)} className="admin-action">
-                          Ready
-                        </button>
-                        <button type="button" onClick={() => void completeApplication(agreement.id)} className="admin-action">
-                          Complete
-                        </button>
+                        {row.kind === "application" ? (
+                          <>
+                            <button type="button" onClick={() => void prepareAgreement(row.application.id)} className="admin-action">
+                              Generate Agreement
+                            </button>
+                            <button type="button" onClick={() => void prepareAgreement(row.application.id, true)} className="admin-action">
+                              Generate & Send
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" onClick={() => void downloadAgreement(row.agreement.id)} className="admin-action">
+                              Download
+                            </button>
+                            <button type="button" onClick={() => void sendAgreement(row.agreement.id)} className="admin-action">
+                              {row.agreement.sentAt ? "Resend" : "Send"}
+                            </button>
+                            <label className="admin-action cursor-pointer">
+                              Upload Signed
+                              <input
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                className="sr-only"
+                                onChange={(event) => void uploadSignedAgreement(row.agreement.id, event.currentTarget.files?.[0])}
+                              />
+                            </label>
+                            <button type="button" onClick={() => void markSigned(row.agreement.id)} className="admin-action">
+                              Mark Signed
+                            </button>
+                            <button type="button" onClick={() => void markSupportReady(row.agreement.id)} className="admin-action">
+                              Ready
+                            </button>
+                            <button type="button" onClick={() => void completeApplication(row.agreement.id)} className="admin-action">
+                              Complete
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -455,11 +574,11 @@ export default function AdminAgreementsPage() {
           </table>
         </div>
 
-        {filteredAgreements.length === 0 && (
+        {filteredWorkflowRows.length === 0 && (
           <div className="mt-6 rounded-md bg-[#fff7e6] p-5 text-[var(--lifespring-muted)]">
             {loading
               ? "Loading records..."
-              : "No agreement records match this view. Generate agreements from eligible applications below."}
+              : "No application or agreement records match this monitoring channel."}
           </div>
         )}
       </section>

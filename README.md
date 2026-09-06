@@ -192,9 +192,16 @@ where supported. If `ADMIN_API_TOKEN` is not configured, the admin API refuses
 access rather than using a default password.
 
 On Hostinger shared hosting, if there is no environment variable screen, create
-`public_html/api/data/admin-token.txt` in File Manager and put one long private
-admin token inside it. The `api/data/.htaccess` file blocks public web access to
-that folder.
+`lifespring-data/admin-token.txt` next to `public_html` in File Manager and put
+one long private admin token inside it. The PHP fallback stores records,
+generated agreements and signed uploads in that `lifespring-data` folder so they
+survive Git redeploys. On first run, the fallback attempts to migrate
+`public_html/api/data/records.json` and `public_html/api/data/admin-token.txt`
+into the persistent folder if they already exist.
+
+If Hostinger does not allow writing beside `public_html`, the fallback still
+uses `public_html/api/data`; however, that fallback location can be overwritten
+by Git redeploys and should be avoided for production records.
 
 ## Workflow Test Checklist
 

@@ -2,11 +2,48 @@
 declare(strict_types=1);
 
 function lhf_data_dir(): string {
-    $dir = __DIR__ . '/data';
-    if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
+    $envDir = trim((string)(getenv('LHF_DATA_DIR') ?: ''));
+    $legacyDir = __DIR__ . '/data';
+    $candidates = [];
+
+    if ($envDir !== '') {
+        $candidates[] = $envDir;
     }
-    return $dir;
+
+    $parentOutsidePublicHtml = dirname(__DIR__, 2);
+    if ($parentOutsidePublicHtml !== '' && $parentOutsidePublicHtml !== dirname(__DIR__)) {
+        $candidates[] = $parentOutsidePublicHtml . '/lifespring-data';
+    }
+
+    $candidates[] = $legacyDir;
+
+    foreach ($candidates as $dir) {
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        if (is_dir($dir) && is_writable($dir)) {
+            lhf_migrate_legacy_data($legacyDir, $dir);
+            return $dir;
+        }
+    }
+
+    return $legacyDir;
+}
+
+function lhf_migrate_legacy_data(string $legacyDir, string $targetDir): void {
+    if (realpath($legacyDir) === realpath($targetDir)) {
+        return;
+    }
+
+    foreach (['records.json', 'admin-token.txt'] as $filename) {
+        $source = $legacyDir . '/' . $filename;
+        $target = $targetDir . '/' . $filename;
+
+        if (is_file($source) && !is_file($target)) {
+            @copy($source, $target);
+        }
+    }
 }
 
 function lhf_records_path(): string {
@@ -183,7 +220,7 @@ function lhf_add_complaint(array $complaint): array {
 function lhf_admin_required(): void {
     $expected = getenv('ADMIN_API_TOKEN') ?: lhf_file_admin_token();
     if ($expected === '') {
-        lhf_json(503, ['message' => 'Admin API token is not configured on the server. Create api/data/admin-token.txt or set ADMIN_API_TOKEN.']);
+        lhf_json(503, ['message' => 'Admin API token is not configured on the server. Create lifespring-data/admin-token.txt outside public_html, create api/data/admin-token.txt as a fallback, or set ADMIN_API_TOKEN.']);
     }
     $provided = $_SERVER['HTTP_X_ADMIN_TOKEN'] ?? '';
     if (!hash_equals($expected, $provided)) {

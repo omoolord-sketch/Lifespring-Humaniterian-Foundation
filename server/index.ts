@@ -186,6 +186,19 @@ type DonationIntentFormData = {
   amount: string;
 };
 
+type LegacyApplicationImportData = {
+  type?: "SCHOLARSHIP" | "COMMUNITY_SUPPORT";
+  reference?: string;
+  applicantName?: string;
+  applicantEmail?: string;
+  applicantPhone?: string;
+  summary?: string;
+  schoolName?: string;
+  classLevel?: string;
+  supportCategory?: string;
+  originalSubmittedAt?: string;
+};
+
 let transporter: nodemailer.Transporter;
 
 async function createTransporter() {
@@ -966,6 +979,83 @@ app.get("/api/admin/agreements", requireAdmin, (_req, res) => {
     agreements: recordStore.all().agreements,
     signingMode: "manual_email",
   });
+});
+
+app.post("/api/admin/import-legacy-application", requireAdmin, (req, res) => {
+  const {
+    type,
+    reference,
+    applicantName,
+    applicantEmail,
+    applicantPhone,
+    summary,
+    schoolName,
+    classLevel,
+    supportCategory,
+    originalSubmittedAt,
+  } = req.body as LegacyApplicationImportData;
+
+  if (!type || !["SCHOLARSHIP", "COMMUNITY_SUPPORT"].includes(type)) {
+    return res.status(400).json({ message: "Choose a valid application type" });
+  }
+  if (!requireFields([applicantName || "", applicantEmail || ""])) {
+    return res.status(400).json({ message: "Applicant name and email are required" });
+  }
+
+  const cleanReference =
+    reference?.trim() ||
+    createReference(type === "SCHOLARSHIP" ? "LHF-SCH-LEGACY" : "LHF-CSP-LEGACY");
+  const duplicate = recordStore
+    .all()
+    .applications.find((application) => application.reference === cleanReference);
+
+  if (duplicate) {
+    return res.status(409).json({ message: "An application with this reference already exists" });
+  }
+
+  const application = recordStore.addApplication({
+    reference: cleanReference,
+    type,
+    applicantName: applicantName.trim(),
+    applicantEmail: applicantEmail.trim(),
+    applicantPhone: applicantPhone?.trim() || "",
+    status: "SUBMITTED",
+    data: {
+      importedLegacyApplication: "yes",
+      originalSubmittedAt: originalSubmittedAt?.trim() || "",
+      summary: summary?.trim() || "",
+      schoolName: schoolName?.trim() || "",
+      classLevel: classLevel?.trim() || "",
+      supportCategory: supportCategory?.trim() || "",
+      academicNeed: type === "SCHOLARSHIP" ? summary?.trim() || "" : "",
+      supportNeeded: type === "COMMUNITY_SUPPORT" ? summary?.trim() || "" : "",
+    },
+    acknowledgements: [
+      {
+        policyId: type === "SCHOLARSHIP" ? "SCHOLARSHIP_CODE" : "COMMUNITY_SUPPORT_CODE",
+        policyVersion: "1.0",
+        declaration: "legacy_application_imported_from_email_record",
+        accepted: true,
+        acceptedAt: new Date().toISOString(),
+        userAgent: req.get("user-agent"),
+        ipAddress: req.ip,
+      },
+    ],
+  });
+
+  recordStore.audit(
+    "application.legacy_imported",
+    "application",
+    application.id,
+    {
+      reference: application.reference,
+      type: application.type,
+      originalSubmittedAt: originalSubmittedAt?.trim() || "",
+    },
+    req.header("x-admin-id") || "admin"
+  );
+
+  return res.status(200).json({ message: "Legacy application imported", application });
 });
 
 app.post(

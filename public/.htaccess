@@ -9,6 +9,7 @@
   RewriteRule ^api/admin/agreements/([^/]+)/support-ready$ /api/admin-support-ready.php?agreementId=$1 [L,QSA]
   RewriteRule ^api/admin/agreements/([^/]+)/complete$ /api/admin-complete-agreement.php?agreementId=$1 [L,QSA]
   RewriteRule ^api/admin/applications$ /api/admin-applications.php [L,QSA]
+  RewriteRule ^api/admin/import-legacy-application$ /api/admin-import-legacy-application.php [L,QSA]
   RewriteRule ^api/admin/application-status$ /api/admin-application-status.php [L,QSA]
   RewriteRule ^api/(scholarship|support-request|contact|donation-intent|complaints|report-a-concern)$ /api/$1.php [L,QSA]
   RewriteRule ^index\.html$ - [L]

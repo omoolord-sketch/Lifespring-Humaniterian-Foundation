@@ -92,6 +92,12 @@ This workflow works without DocuSign. The old DocuSign service file is retained
 only as a future integration point; the active admin send action uses normal
 email with the generated PDF attached.
 
+Older applications submitted before the admin record store was active may exist
+only in the organisation email inbox. Use the protected "Import Older
+Application" section on `/admin/agreements` to recreate those records from the
+original email details, then continue with the normal generate/send/signature
+workflow. Do not invent missing applicant details; leave unknown fields blank.
+
 ## Email Notifications
 
 The backend uses Nodemailer. Configure SMTP in `.env`:

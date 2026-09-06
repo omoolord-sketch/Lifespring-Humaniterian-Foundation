@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { apiUrl, readApiMessage } from "../lib/api";
 
 type ApplicationRecord = {
@@ -53,6 +53,18 @@ export default function AdminAgreementsPage() {
   const [token, setToken] = useState(localStorage.getItem("lhfAdminToken") || "");
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
   const [agreements, setAgreements] = useState<AgreementRecord[]>([]);
+  const [legacyForm, setLegacyForm] = useState({
+    type: "SCHOLARSHIP",
+    reference: "",
+    applicantName: "",
+    applicantEmail: "",
+    applicantPhone: "",
+    originalSubmittedAt: "",
+    schoolName: "",
+    classLevel: "",
+    supportCategory: "",
+    summary: "",
+  });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [message, setMessage] = useState("");
@@ -253,6 +265,28 @@ export default function AdminAgreementsPage() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function importLegacyApplication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!confirm("Import this older application into the admin records?")) {
+      return;
+    }
+
+    await adminPost("/api/admin/import-legacy-application", legacyForm);
+    setLegacyForm({
+      type: "SCHOLARSHIP",
+      reference: "",
+      applicantName: "",
+      applicantEmail: "",
+      applicantPhone: "",
+      originalSubmittedAt: "",
+      schoolName: "",
+      classLevel: "",
+      supportCategory: "",
+      summary: "",
+    });
+    await loadRecords();
   }
 
   async function adminPost<T = { message?: string }>(path: string, body: Record<string, string> = {}) {
@@ -499,6 +533,84 @@ export default function AdminAgreementsPage() {
           })}
         </div>
       </section>
+
+      <section className="mt-8 rounded-md border border-[#eadfcb] bg-white p-5 shadow-sm">
+        <details>
+          <summary className="cursor-pointer text-2xl font-extrabold text-[var(--lifespring-burgundy)]">
+            Import Older Application
+          </summary>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--lifespring-muted)]">
+            Use this for applications submitted before the admin record store was
+            active. Copy only the details that exist in the original email or
+            paper record; leave unknown fields blank.
+          </p>
+          <form onSubmit={(event) => void importLegacyApplication(event)} className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-semibold">
+              Application Type
+              <select
+                value={legacyForm.type}
+                onChange={(event) => setLegacyForm((current) => ({ ...current, type: event.target.value }))}
+                className="mt-2 w-full rounded-md border border-[#d9c8a5] px-4 py-3"
+              >
+                <option value="SCHOLARSHIP">Scholarship</option>
+                <option value="COMMUNITY_SUPPORT">Community Support</option>
+              </select>
+            </label>
+            <LegacyInput label="Original Reference" value={legacyForm.reference} onChange={(value) => setLegacyForm((current) => ({ ...current, reference: value }))} placeholder="Leave blank if none" />
+            <LegacyInput label="Applicant Name" value={legacyForm.applicantName} onChange={(value) => setLegacyForm((current) => ({ ...current, applicantName: value }))} required />
+            <LegacyInput label="Applicant Email" value={legacyForm.applicantEmail} onChange={(value) => setLegacyForm((current) => ({ ...current, applicantEmail: value }))} required type="email" />
+            <LegacyInput label="Applicant Phone" value={legacyForm.applicantPhone} onChange={(value) => setLegacyForm((current) => ({ ...current, applicantPhone: value }))} />
+            <LegacyInput label="Original Submitted Date" value={legacyForm.originalSubmittedAt} onChange={(value) => setLegacyForm((current) => ({ ...current, originalSubmittedAt: value }))} placeholder="Example: 24 August 2026" />
+            <LegacyInput label="School Name" value={legacyForm.schoolName} onChange={(value) => setLegacyForm((current) => ({ ...current, schoolName: value }))} />
+            <LegacyInput label="Class/Level" value={legacyForm.classLevel} onChange={(value) => setLegacyForm((current) => ({ ...current, classLevel: value }))} />
+            <LegacyInput label="Support Category" value={legacyForm.supportCategory} onChange={(value) => setLegacyForm((current) => ({ ...current, supportCategory: value }))} />
+            <label className="text-sm font-semibold md:col-span-2">
+              Application Summary
+              <textarea
+                value={legacyForm.summary}
+                onChange={(event) => setLegacyForm((current) => ({ ...current, summary: event.target.value }))}
+                className="mt-2 min-h-32 w-full rounded-md border border-[#d9c8a5] px-4 py-3"
+                placeholder="Paste the need/support summary from the old email"
+              />
+            </label>
+            <div className="md:col-span-2">
+              <button type="submit" className="rounded-md bg-[var(--lifespring-burgundy)] px-6 py-3 font-bold text-white">
+                Import Legacy Application
+              </button>
+            </div>
+          </form>
+        </details>
+      </section>
     </main>
+  );
+}
+
+function LegacyInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  type?: string;
+}) {
+  return (
+    <label className="text-sm font-semibold">
+      {label}
+      <input
+        type={type}
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-md border border-[#d9c8a5] px-4 py-3"
+        placeholder={placeholder}
+      />
+    </label>
   );
 }
